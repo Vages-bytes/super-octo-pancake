@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Squid Shooter</title>
+  <!-- Tailwind (just-in-time CDN build) for quick utility classes -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Core page reset & mobile‑friendly behaviour */
+    html,body {margin:0;padding:0;background:#000;touch-action:none;overscroll-behavior:none;}
+    canvas {display:block;width:100vw;height:100vh;}
+  </style>
+</head>
+<body>
+  <!-- The entire game lives in this full‑screen canvas -->
+  <canvas id="game"></canvas>
+
+  <script>
+  /* =========================================================
+     SQUID SHOOTER
+     – quick, mobile‑friendly 2‑D shooter in Squid‑Game colours
+       ▶ pink player & bullets  (#FF1E56)
+       ▶ green enemies        (#00FE9B)
+       ▶ dark background      (#000000)
+     Touch bottom half → move, tap top half → shoot
+  ==========================================================*/
+  const canvas = document.getElementById('game');
+  const ctx     = canvas.getContext('2d');
+
+  // ---------- helpers ----------
+  function resize() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const COLORS = {
+    player : '#FF1E56',   // neon‑pink (Squid Game guard)
+    bullet : '#FF1E56',
+    enemy  : '#00FE9B',   // green (Squid Game contestant tracksuit)
+    text   : '#ffffff'
+  };
+
+  // ---------- game entities ----------
+  const player = { x: canvas.width / 2 - 20, y: canvas.height - 60, w: 40, h: 20, speed: 7 };
+  let bullets  = []; // [{x,y,w,h,speed}]
+  let enemies  = []; // [{x,y,w,h,speed,dead:false}]
+
+  let score     = 0;
+  let gameOver  = false;
+  let lastEnemy = 0;
+
+  function spawnEnemy() {
+    const size  = 25 + Math.random() * 25;
+    const x     = Math.random() * (canvas.width - size);
+    const speed = 2 + Math.random() * 3;
+    enemies.push({ x, y:-size, w:size, h:size, speed, dead:false });
+  }
+
+  function reset() {
+    bullets = [];
+    enemies = [];
+    score   = 0;
+    gameOver = false;
+    player.x = canvas.width / 2 - player.w / 2;
+  }
+
+  // ---------- main update/draw loop ----------
+  function update(dt) {
+    if (gameOver) return;
+
+    // move bullets up
+    bullets.forEach(b => b.y -= b.speed * dt);
+    bullets = bullets.filter(b => b.y > -b.h && !b.dead);
+
+    // move enemies down
+    enemies.forEach(e => e.y += e.speed * dt);
+    enemies = enemies.filter(e => e.y < canvas.height + e.h && !e.dead);
+
+    // bullet → enemy collision
+    bullets.forEach(b => {
+      enemies.forEach(e => {
+        if (!e.dead &&
+            b.x < e.x + e.w && b.x + b.w > e.x &&
+            b.y < e.y + e.h && b.y + b.h > e.y) {
+          e.dead = true;
+          b.dead = true;
+          score += 100;
+        }
+      });
+    });
+
+    // enemy → player collision
+    enemies.forEach(e => {
+      if (!e.dead &&
+          e.y + e.h > player.y &&
+          e.x < player.x + player.w && e.x + e.w > player.x) {
+        gameOver = true;
+      }
+    });
+
+    // add new enemies periodically
+    if (Date.now() - lastEnemy > 900) { // ~1 enemy per second
+      spawnEnemy();
+      lastEnemy = Date.now();
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // player
+    ctx.fillStyle = COLORS.player;
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+
+    // bullets
+    ctx.fillStyle = COLORS.bullet;
+    bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+
+    // enemies
+    ctx.fillStyle = COLORS.enemy;
+    enemies.forEach(e => ctx.fillRect(e.x, e.y, e.w, e.h));
+
+    // HUD
+    ctx.fillStyle = COLORS.text;
+    ctx.font = '20px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Score: ${score}`, 10, 28);
+
+    if (gameOver) {
+      ctx.textAlign = 'center';
+      ctx.font = '48px sans-serif';
+      ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2);
+      ctx.font = '20px sans-serif';
+      ctx.fillText('Tap to play again', canvas.width / 2, canvas.height / 2 + 40);
+    }
+  }
+
+  let prev = 0;
+  function loop(ts) {
+    const dt = (ts - prev) / 16; // normalise to ~60 fps
+    prev = ts;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // ---------- controls ----------
+  function shoot() {
+    bullets.push({ x: player.x + player.w / 2 - 5, y: player.y - 10, w: 10, h: 20, speed: 12 });
+  }
+
+  // touch: bottom half to move, top half to shoot
+  canvas.addEventListener('touchstart', e => {
+    const { clientX: x, clientY: y } = e.touches[0];
+    if (gameOver) { reset(); return; }
+    if (y > canvas.height * 0.6) {
+      player.x = x - player.w / 2;
+    } else {
+      shoot();
+    }
+  });
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault(); // stop scrolling
+    const { clientX: x } = e.touches[0];
+    player.x = x - player.w / 2;
+  }, { passive:false });
+
+  // optional keyboard fallback (for desktop testing)
+  document.addEventListener('keydown', e => {
+    if (e.code === 'ArrowLeft')  player.x -= player.speed * 5;
+    if (e.code === 'ArrowRight') player.x += player.speed * 5;
+    if (e.code === 'Space')      shoot();
+    if (gameOver && e.code === 'Enter') reset();
+  });
+  </script>
+</body>
+</html>
